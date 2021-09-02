@@ -79,7 +79,7 @@ function make_all_nup() {
         fi
     done
 
-    ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264  -vf "fps=10,format=yuv420p" "${2}.mp4"
+    ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264  -vf "fps=24,format=yuv420p" "${2}.mp4"
 
     for pdfile in paper-[0-9]*-$grid_dimension.pdf ; do
         echo "${pdfile}"
