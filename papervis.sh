@@ -11,14 +11,16 @@ FLAGS:
     -h, --help              Print help information and quit
 
 OPTIONS:
-        --url <url>         URL of the project Git repo (HTTPS, SSH, or local path)
-        --start <start>     Git commit hash to start at.
-                            If left blank it will default to the first commit
-                            in the project repo
-        --grid <grid>       The dimensions of the grid. Ex: 9x6
-        --name <name>       The name of the output .mp4 file. Default is papervis
-        --target <target>   The name of an optional Makefile target to run as
-                            part of the build
+        --url <url>          URL of the project Git repo (HTTPS, SSH, or local path)
+        --start <start>      Git commit hash to start at.
+                             If left blank it will default to the first commit
+                             in the project repo
+        --grid <grid>        The dimensions of the grid. Ex: 9x6
+        --name <name>        The name of the output .mp4 file. Default is papervis
+        --target <target>    The name of an optional Makefile target to run as
+                             part of the build
+        --filename <filename> Name of the file
+        --latex  <latex>     LaTeX engine                
 
 EOF
 }
@@ -29,37 +31,23 @@ function prep_repo() {
     cd build
 }
 
-function makepaperrev() {
-    # Gets the commit number counted from the beginning
-    local mcount
-    mcount=$(git rev-list --count --first-parent HEAD)
-
-    echo "${mcount}"
-    make clean
-    make papervis
-    mv paper.pdf "paper-${mcount}.pdf"
-    git stash
-    git stash drop
-    # Ignore build errors
-    true
-}
 
 function make_all() {
     # 1: the first commit hash to build
     # 2: the optional make target
-    while read -r rev; do
-        if [[ -f Makefile ]]; then
-            if [[ $# -gt 1 ]]; then
-                printf "\npapervis: ${2}\n\tlatexmk -\$(LATEX) -jobname=\"paper\" -logfilewarnings -halt-on-error \$(FILENAME)\n" >> Makefile
-            else
-                printf "\npapervis:\n\tlatexmk -\$(LATEX) -jobname=\"paper\" -logfilewarnings -halt-on-error \$(FILENAME)\n" >> Makefile
-            fi
-        else
-            return 1
-        fi
-        git checkout "$rev"
-        makepaperrev
-    done < <(git rev-list --reverse "${1}..origin/master")
+    while read -r line; do
+        git checkout "$line"
+        local mcount
+        mcount=$(git rev-list --count --first-parent HEAD)
+
+        echo "${mcount}"
+        latexmk "-${LATEX}"  -jobname="paper" -logfilewarnings -halt-on-error -f "${FILENAME}"
+        mv paper.pdf "paper-${mcount}.pdf"
+        git stash
+        git stash drop
+        # Ignore build errors
+        true
+    done < <(git rev-list --reverse "${START_COMMIT_HASH}..origin/master")
 }
 
 function make_all_nup() {
@@ -91,7 +79,7 @@ function make_all_nup() {
         fi
     done
 
-    ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264  -vf "fps=24,format=yuv420p" "${2}.mp4"
+    ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264  -vf "fps=10,format=yuv420p" "${2}.mp4"
 
     for pdfile in paper-[0-9]*-$grid_dimension.pdf ; do
         echo "${pdfile}"
@@ -140,6 +128,16 @@ function main() {
                 shift
                 shift
                 ;;
+            --latex)
+                LATEX="${2}"
+                shift
+                shift
+                ;; 
+            --filename)
+                FILENAME="${2}"
+                shift
+                shift
+                ;; 
             *)
                 printf "\n    Invalid option: %s\n\n" "${1}"
                 print_usage
@@ -158,6 +156,16 @@ function main() {
         printf "\n# Enter the grid dimension with the --grid option\n# A example would be 9x6\n\n"
         exit 1
     fi
+
+    if [[ -z "${LATEX}" ]]; then
+        LATEX = "pdflatex"
+    fi
+
+    if [[ -z "${FILENAME}" ]]; then
+        printf "\n# Enter the file name with the --filename option\n# A example would be \n\n"
+        exit 1    
+    fi
+
 
     # Clone and cd
     prep_repo "${GIT_REPO_URL}"
