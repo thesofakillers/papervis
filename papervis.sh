@@ -3,7 +3,7 @@
 set -e
 
 function print_usage {
-    cat 1>&2 <<EOF
+  cat 1>&2 << EOF
 USAGE:
     papervis [FLAGS] [OPTIONS]
 
@@ -26,165 +26,163 @@ EOF
 }
 
 function prep_repo() {
-    # 1: URL or path of Git repo
-    git clone --recursive "${1}" build
-    cd build
+  # 1: URL or path of Git repo
+  git clone --recursive "${1}" build
+  cd build
 }
 
-
 function make_all() {
-    # 1: the first commit hash to build
-    # 2: the optional make target
-    while read -r line; do
-        git checkout "$line"
-        local mcount
-        mcount=$(git rev-list --count --first-parent HEAD)
+  # 1: the first commit hash to build
+  # 2: the optional make target
+  while read -r line; do
+    git checkout "$line"
+    local mcount
+    mcount=$(git rev-list --count --first-parent HEAD)
 
-        echo "${mcount}"
-        latexmk "-${LATEX}"  -jobname="paper" -logfilewarnings -halt-on-error -f "${FILENAME}"
-        mv paper.pdf "paper-${mcount}.pdf"
-        git stash
-        git stash drop
-        # Ignore build errors
-        true
-    done < <(git rev-list --reverse "${START_COMMIT_HASH}..origin/master")
+    echo "${mcount}"
+    latexmk "-${LATEX}" -jobname="paper" -logfilewarnings -halt-on-error -f "${FILENAME}"
+    mv paper.pdf "paper-${mcount}.pdf"
+    git stash
+    git stash drop
+    # Ignore build errors
+    true
+  done < <(git rev-list --reverse "${START_COMMIT_HASH}..origin/master")
 }
 
 function make_all_nup() {
-    # 1: the dimensionality of the paper grid
-    # 2: the name of the output .mp4 file
-    local grid_dimension
-    grid_dimension="${1}"
+  # 1: the dimensionality of the paper grid
+  # 2: the name of the output .mp4 file
+  local grid_dimension
+  grid_dimension="${1}"
 
-    shopt -s extglob
-    regex="paper-+([0-9]).pdf"
-    max_page_number_size=$(find ${regex} | cut -d- -f2 | cut -d. -f1 | awk '{ print length }' | sort | tail -1)
+  shopt -s extglob
+  regex="paper-+([0-9]).pdf"
+  max_page_number_size=$(find ${regex} | cut -d- -f2 | cut -d. -f1 | awk '{ print length }' | sort | tail -1)
 
-    # Convert to "n-up" PDF files and rename with zero padded names for order
-    for pdfile in ${regex}; do
-        pdfnup --nup "${grid_dimension}" --suffix "${grid_dimension}" --batch "${pdfile}"
+  # Convert to "n-up" PDF files and rename with zero padded names for order
+  for pdfile in ${regex}; do
+    pdfnup --nup "${grid_dimension}" --suffix "${grid_dimension}" --batch "${pdfile}"
 
-        page_number=$(echo "${pdfile}" | cut -d- -f2 | cut -d. -f1);
-        page_number_size=$(echo "${page_number}" | awk '{ print length }')
-        zero_pad_len=$((max_page_number_size-page_number_size))
-        if (( zero_pad_len > 0 )); then
-            mv "paper-${page_number}-${grid_dimension}.pdf" "$(printf "paper-%0${zero_pad_len}d${page_number}-${grid_dimension}.pdf")"
-        fi
-    done
+    page_number=$(echo "${pdfile}" | cut -d- -f2 | cut -d. -f1)
+    page_number_size=$(echo "${page_number}" | awk '{ print length }')
+    zero_pad_len=$((max_page_number_size - page_number_size))
+    if ((zero_pad_len > 0)); then
+      mv "paper-${page_number}-${grid_dimension}.pdf" "$(printf "paper-%0${zero_pad_len}d${page_number}-${grid_dimension}.pdf")"
+    fi
+  done
 
-    # Convert to PNG and animate
-    for pdfile in paper-[0-9]*-$grid_dimension.pdf ; do
-        if [ ! -f "${pdfile%.*}".png ]; then
-            convert -verbose -density 300 -geometry 'x800' -background "#FFFFFF" -flatten "${pdfile}" "${pdfile%.*}".png
-        fi
-    done
+  # Convert to PNG and animate
+  for pdfile in paper-[0-9]*-$grid_dimension.pdf; do
+    if [ ! -f "${pdfile%.*}".png ]; then
+      convert -verbose -density 300 -geometry 'x800' -background "#FFFFFF" -flatten "${pdfile}" "${pdfile%.*}".png
+    fi
+  done
 
-    ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264  -vf "fps=24,format=yuv420p" "${2}.mp4"
+  ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264 -vf "fps=24,format=yuv420p" "${2}.mp4"
 
-    for pdfile in paper-[0-9]*-$grid_dimension.pdf ; do
-        echo "${pdfile}"
-    done
+  for pdfile in paper-[0-9]*-$grid_dimension.pdf; do
+    echo "${pdfile}"
+  done
 }
 
 function main() {
 
-    local GIT_REPO_URL
-    local START_COMMIT_HASH
-    local GRID_DIMENSION
-    local OUTPUT_NAME
-    OUTPUT_NAME="papervis"
-    local MAKE_TARGET
+  local GIT_REPO_URL
+  local START_COMMIT_HASH
+  local GRID_DIMENSION
+  local OUTPUT_NAME
+  OUTPUT_NAME="papervis"
+  local MAKE_TARGET
 
-    while [[ $# -gt 0 ]]; do
-        arg="${1}"
-        case "${arg}" in
-            -h|--help)
-                print_usage
-                exit 0
-                ;;
-                # Additional options
-            --url)
-                GIT_REPO_URL="${2}"
-                shift
-                shift
-                ;;
-            --start)
-                START_COMMIT_HASH="${2}"
-                shift
-                shift
-                ;;
-            --grid)
-                GRID_DIMENSION="${2}"
-                shift
-                shift
-                ;;
-            --name)
-                OUTPUT_NAME="${2}"
-                shift
-                shift
-                ;;
-            --target)
-                MAKE_TARGET="${2}"
-                shift
-                shift
-                ;;
-            --latex)
-                LATEX="${2}"
-                shift
-                shift
-                ;; 
-            --filename)
-                FILENAME="${2}"
-                shift
-                shift
-                ;; 
-            *)
-                printf "\n    Invalid option: %s\n\n" "${1}"
-                print_usage
-                exit 1
-                ;;
-        esac
-    done
-
-    # Check input values
-    if [[ -z "${GIT_REPO_URL}" ]]; then
-        printf "\n# Enter the Git repo URL (HTTPS, SSH, or local path) with the --url option\n\n"
+  while [[ $# -gt 0 ]]; do
+    arg="${1}"
+    case "${arg}" in
+      -h | --help)
+        print_usage
+        exit 0
+        ;;
+        # Additional options
+      --url)
+        GIT_REPO_URL="${2}"
+        shift
+        shift
+        ;;
+      --start)
+        START_COMMIT_HASH="${2}"
+        shift
+        shift
+        ;;
+      --grid)
+        GRID_DIMENSION="${2}"
+        shift
+        shift
+        ;;
+      --name)
+        OUTPUT_NAME="${2}"
+        shift
+        shift
+        ;;
+      --target)
+        MAKE_TARGET="${2}"
+        shift
+        shift
+        ;;
+      --latex)
+        LATEX="${2}"
+        shift
+        shift
+        ;;
+      --filename)
+        FILENAME="${2}"
+        shift
+        shift
+        ;;
+      *)
+        printf "\n    Invalid option: %s\n\n" "${1}"
+        print_usage
         exit 1
-    fi
+        ;;
+    esac
+  done
 
-    if [[ -z "${GRID_DIMENSION}" ]]; then
-        printf "\n# Enter the grid dimension with the --grid option\n# A example would be 9x6\n\n"
-        exit 1
-    fi
+  # Check input values
+  if [[ -z "${GIT_REPO_URL}" ]]; then
+    printf "\n# Enter the Git repo URL (HTTPS, SSH, or local path) with the --url option\n\n"
+    exit 1
+  fi
 
-    if [[ -z "${LATEX}" ]]; then
-        LATEX = "pdflatex"
-    fi
+  if [[ -z "${GRID_DIMENSION}" ]]; then
+    printf "\n# Enter the grid dimension with the --grid option\n# A example would be 9x6\n\n"
+    exit 1
+  fi
 
-    if [[ -z "${FILENAME}" ]]; then
-        printf "\n# Enter the file name with the --filename option\n# A example would be \n\n"
-        exit 1    
-    fi
+  if [[ -z "${LATEX}" ]]; then
+    LATEX = "pdflatex"
+  fi
 
+  if [[ -z "${FILENAME}" ]]; then
+    printf "\n# Enter the file name with the --filename option\n# A example would be \n\n"
+    exit 1
+  fi
 
-    # Clone and cd
-    prep_repo "${GIT_REPO_URL}"
+  # Clone and cd
+  prep_repo "${GIT_REPO_URL}"
 
-    if [[ -z "${START_COMMIT_HASH}" ]]; then
-        START_COMMIT_HASH="$(git rev-list --max-parents=0 HEAD)"
-        printf "\n# Starting papervis at the first commit in the project Git repo: %s\n\n" "${START_COMMIT_HASH}"
-    else
-        printf "\n# Starting papervis at commit hash: %s\n\n" "${START_COMMIT_HASH}"
-    fi
-    sleep 2
+  if [[ -z "${START_COMMIT_HASH}" ]]; then
+    START_COMMIT_HASH="$(git rev-list --max-parents=0 HEAD)"
+    printf "\n# Starting papervis at the first commit in the project Git repo: %s\n\n" "${START_COMMIT_HASH}"
+  else
+    printf "\n# Starting papervis at commit hash: %s\n\n" "${START_COMMIT_HASH}"
+  fi
+  sleep 2
 
-    if [[ ! -z "${MAKE_TARGET}" ]]; then
-        make_all "${START_COMMIT_HASH}" "${MAKE_TARGET}"
-    else
-        make_all "${START_COMMIT_HASH}"
-    fi
-    cd build
-    make_all_nup "${GRID_DIMENSION}" "${OUTPUT_NAME}"
+  if [[ ! -z "${MAKE_TARGET}" ]]; then
+    make_all "${START_COMMIT_HASH}" "${MAKE_TARGET}"
+  else
+    make_all "${START_COMMIT_HASH}"
+  fi
+  cd build
+  make_all_nup "${GRID_DIMENSION}" "${OUTPUT_NAME}"
 }
 
 main "$@" || return 1
