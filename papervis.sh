@@ -8,21 +8,36 @@ USAGE:
     papervis [FLAGS] [OPTIONS]
 
 FLAGS:
-    -h, --help              Print help information and quit
+    -h, --help                  Print help information and quit
 
 OPTIONS:
-        --url <url>          URL of the project Git repo (HTTPS, SSH, or local path)
-        --start <start>      Git commit hash to start at.
-                             If left blank it will default to the first commit
-                             in the project repo
-        --grid <grid>        The dimensions of the grid. Ex: 9x6
-        --name <name>        The name of the output .mp4 file. Default is papervis
-        --target <target>    The name of an optional Makefile target to run as
-                             part of the build
-        --filename <filename> Name of the file
-        --latex  <latex>     LaTeX engine                
+        --url <url>             URL of the project Git repo (HTTPS, SSH, or local path)
+        --start <start>         Git commit hash to start at.
+                                If left blank it will default to the first commit
+                                in the project repo
+        --grid <grid>           The dimensions of the grid. Ex: 9x6
+        --name <name>           The name of the output .mp4 file. Default is papervis
+        --target <target>       The name of an optional Makefile target to run as
+                                part of the build
+        --skipfile <skipfile>   Text file containing Git commit hashes to be skipped. 
+                                The hashes should be written line by line. The script 
+                                will avoid processing these commits when generating the 
+                                visualization. This option is useful when you want to 
+                                ignore certain parts of the project's history.
+        --filename <filename>   Name of the file
+        --latex  <latex>        LaTeX engine                
 
 EOF
+}
+
+# Array of commits to skip
+COMMITS_TO_SKIP=()
+
+function read_skip_commits() {
+  # 1: File with commits to skip
+  while IFS= read -r line; do
+    COMMITS_TO_SKIP+=("$line")
+  done < "$1"
 }
 
 function prep_repo() {
@@ -35,6 +50,10 @@ function make_all() {
   # 1: the first commit hash to build
   # 2: the optional make target
   while read -r line; do
+    if [[ " ${COMMITS_TO_SKIP[@]} " =~ " ${line} " ]]; then
+      echo "Skipping commit ${line}"
+      continue
+    fi
     git checkout "$line"
     local mcount
     mcount=$(git rev-list --count --first-parent HEAD)
@@ -74,11 +93,11 @@ function make_all_nup() {
   # Convert to PNG and animate
   for pdfile in paper-[0-9]*-$grid_dimension.pdf; do
     if [ ! -f "${pdfile%.*}".png ]; then
-      convert -verbose -density 300 -geometry 'x800' -background "#FFFFFF" -flatten "${pdfile}" "${pdfile%.*}".png
+      convert -verbose -density 150 -background "#FFFFFF" -flatten "${pdfile}" "${pdfile%.*}".png
     fi
   done
 
-  ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264 -vf "fps=24,format=yuv420p" "${2}.mp4"
+  ffmpeg -y -pattern_type glob -i '*.png' -c:v libx264 -vf "fps=10,format=yuv420p" "${2}.mp4"
 
   for pdfile in paper-[0-9]*-$grid_dimension.pdf; do
     echo "${pdfile}"
@@ -102,6 +121,11 @@ function main() {
         exit 0
         ;;
         # Additional options
+      --skipfile)
+        read_skip_commits "${2}"
+        shift
+        shift
+        ;;
       --url)
         GIT_REPO_URL="${2}"
         shift
